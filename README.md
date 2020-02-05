@@ -1,13 +1,23 @@
 ## MongoDB change stream usage
 
-We found that it is not possible to close Mongo Change stream. Here you can find demo of issue we have
+We found that it is not possible to close Mongo Change stream until requested amount of records 
+was consumed. In other words, even if we request only on item from mongo and collection is updated 
+rarely, and we call watch  multiple times with unsubscribe just after, then we will open and keep 
+as many cursors as requested keeping them alive until first event. Which looks like a bug.
+
+I implemented two modes: first to demonstrate exception on immediate unsubscribe. And second
+with workaround, when we consume all requested event and unsubscribe just after.   
 
 ```bash
-$ # run test application
+$ # run test application with or without exception
 $ # mongodb cluster is supposed to be available on standard port on localhost
 $ # cluster is required to use mongo change streams
-$ sbt run
+$ sbt run # this will run application in mode with immediate unsubscribe from mongo subscription
+$ sbt "run fixed" # this will run application in mode with consuming all requested event first
 ``` 
+
+
+
 
 Our workflow is:
 1. We use collection as datastore with external index

@@ -1,9 +1,10 @@
 package com.example
 
-import java.util.concurrent.atomic.AtomicInteger
+import java.time.LocalDateTime
+import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger}
 
 import akka.Done
-import akka.actor.ActorSystem
+import akka.actor.{ActorSystem, Cancellable}
 import akka.stream.{ActorMaterializer, KillSwitches, Materializer, UniqueKillSwitch}
 import akka.stream.scaladsl.{Keep, Sink, Source}
 import org.mongodb.scala._
@@ -18,12 +19,14 @@ object MongoDBChangeStream extends App {
   implicit val system: ActorSystem = ActorSystem("test")
   implicit val materializer: Materializer = ActorMaterializer()
 
-  val mongoClient: MongoClient = MongoClient("mongodb://localhost")
+  val mongoClient: MongoClient = MongoClient("mongodb://remote.host")
   val database: MongoDatabase = mongoClient.getDatabase("mydb")
   val collection = "mycollection"
   val ids = new AtomicInteger(1)
+  val stopImmediatelly = args.isEmpty
+  val stopInserts = new AtomicBoolean(false)
 
-  def runInserts(): Future[Done] = {
+  def runInserts(continue: Boolean): Future[Unit] = if (continue) {
     import system.dispatcher
     Source.fromPublisher(
       database
@@ -33,29 +36,32 @@ object MongoDBChangeStream extends App {
             "name" -> Random.alphanumeric.take(10).mkString
           )
         )
-    ).runForeach { _ =>
+    ).map{ c =>
+      info("Inserted one record")
+      c
+    }.runForeach { _ =>
       system.scheduler.scheduleOnce(1.second) {
-        runInserts()
+        runInserts(continue && !stopInserts.get)
         ()
       }
-    }
-  }
+    }.map(_ => ())
 
-  def consume(i: Int): UniqueKillSwitch = {
+  } else Future.successful(())
+
+  def consume(): UniqueKillSwitch = {
+    import system.dispatcher
+
     val (ks, _) =
       Source.fromPublisher {
         val changeStreamObservable = database.getCollection[Document](collection)
           .watch[Document](pipeline = Seq())
-
-        // Here we do not have any
-        //  changeStreamObservable.stop()
-        // to stop underlying change stream cursor
-        // see https://docs.mongodb.com/manual/reference/method/db.collection.watch/#behavior
-
-        changeStreamObservable
+        if (stopImmediatelly) {
+          info("This will ends with Exception...")
+        }
+        observableToPublisherWL(changeStreamObservable, log = true, stopImmediatelly)
       }.map { doc =>
         // just print notifications about arriving updates from change stream
-        println(s"[$i] Got next doc")
+        info("Got next doc")
         doc
       }.viaMat(KillSwitches.single)(Keep.right)
         .toMat(Sink.last)(Keep.both)
@@ -66,21 +72,23 @@ object MongoDBChangeStream extends App {
 
 
   // we start to insert records into collection
-  runInserts()
+  runInserts(continue = true)
 
-  system.scheduler.scheduleOnce(5.second) {
+  system.scheduler.scheduleOnce(4.second) {
     // here we open changestream to consume inserted records
-    val ks = consume(1)
+    val ks = consume()
 
     system.scheduler.scheduleOnce(5.second) {
       // here we close akkastream, and soon after we got exception
       // Problem: I do not see any way to close underlying cursor from `watch`
+      info("Shutdown killswitch / akkastream")
       ks.shutdown()
     }(system.dispatcher)
   }(system.dispatcher)
 
   // schedule termination to complete
-  system.scheduler.scheduleOnce(15.second) {
+  system.scheduler.scheduleOnce(30.second) {
+    stopInserts.set(true)
     system.terminate()
     ()
   }(system.dispatcher)
