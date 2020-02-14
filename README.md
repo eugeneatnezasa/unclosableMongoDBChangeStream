@@ -1,4 +1,4 @@
-## MongoDB change stream usage
+## MongoDB change stream usage (issue was solved, see update info below)
 
 We found that it is not possible to close Mongo Change stream until requested amount of records 
 was consumed. In other words, even if we request only on item from mongo and collection is updated 
@@ -16,6 +16,17 @@ $ sbt run # this will run application in mode with immediate unsubscribe from mo
 $ sbt "run fixed" # this will run application in mode with consuming all requested event first
 ``` 
 
+## Update from 14.02.2020
+
+Issue was fixed in java async driver part
+
+Issue: https://jira.mongodb.org/browse/JAVA-3487
+
+Java driver version with fix:
+
+```sbt
+"org.mongodb" % "mongodb-driver-async" % "3.12.1"
+``` 
 
 
 

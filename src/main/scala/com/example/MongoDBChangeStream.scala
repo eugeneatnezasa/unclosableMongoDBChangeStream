@@ -19,7 +19,7 @@ object MongoDBChangeStream extends App {
   implicit val system: ActorSystem = ActorSystem("test")
   implicit val materializer: Materializer = ActorMaterializer()
 
-  val mongoClient: MongoClient = MongoClient("mongodb://remote.host")
+  val mongoClient: MongoClient = MongoClient("mongodb://localhost")
   val database: MongoDatabase = mongoClient.getDatabase("mydb")
   val collection = "mycollection"
   val ids = new AtomicInteger(1)
